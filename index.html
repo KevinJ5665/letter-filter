@@ -18,7 +18,6 @@
       overflow: hidden;
       user-select: none;
     }
-    /* Strict 9:16 container so the browser never double-crops the camera */
     .stage {
       position: relative;
       aspect-ratio: 9 / 16;
@@ -76,11 +75,9 @@
     .action-row {
       display: none;
       gap: 10px;
-      pointer-events: auto; /* Fixes unclickable save buttons */
+      pointer-events: auto;
     }
-    .action-row.visible {
-      display: flex;
-    }
+    .action-row.visible { display: flex; }
     .action-btn {
       border: none;
       padding: 11px 18px;
@@ -90,14 +87,8 @@
       cursor: pointer;
       box-shadow: 0 4px 14px rgba(0,0,0,0.45);
     }
-    .share-btn {
-      background: #00e676;
-      color: #000;
-    }
-    .download-btn {
-      background: #ffffff;
-      color: #111;
-    }
+    .share-btn { background: #00e676; color: #000; }
+    .download-btn { background: #ffffff; color: #111; }
     .hint {
       color: #fff;
       font-size: 12px;
@@ -142,7 +133,8 @@
 <body>
   <div class="stage">
     <video id="webcam" autoplay playsinline muted></video>
-    <canvas id="canvas" width="720" height="1280"></canvas>
+    <!-- Full HD 1080x1920 (9:16) canvas for sharp camera & recording quality -->
+    <canvas id="canvas" width="1080" height="1920"></canvas>
 
     <div class="rec-indicator" id="recIndicator">
       <div class="dot"></div>
@@ -167,6 +159,9 @@
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
     const recBtn = document.getElementById('recBtn');
     const recIndicator = document.getElementById('recIndicator');
     const recTimer = document.getElementById('recTimer');
@@ -188,17 +183,24 @@
     let lastRecordedFile = null;
     let lastRecordedUrl = null;
 
-    // 1. Start Camera using native wide sensor without forced portrait crop
+    // 1. Request Full HD 1080p using native sensor aspect ratio (no zoom crop)
     async function initCamera() {
+      const hdConstraints = {
+        facingMode: "user",
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 }
+      };
+
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
+          video: hdConstraints,
           audio: true
         });
       } catch (e) {
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user" },
+            video: hdConstraints,
             audio: false
           });
         } catch (err) {
@@ -211,10 +213,10 @@
       requestAnimationFrame(drawFrame);
     }
 
-    // 2. Render 9:16 Canvas Frame + Badge Overlay
+    // 2. Render 1080x1920 Frame + Lower, Smaller Badge
     function drawFrame() {
-      const cw = canvas.width;
-      const ch = canvas.height;
+      const cw = canvas.width;   // 1080
+      const ch = canvas.height;  // 1920
 
       if (video.readyState >= 2 && video.videoWidth > 0) {
         const vw = video.videoWidth;
@@ -238,26 +240,28 @@
         ctx.restore();
       }
 
-      const targetScale = isWinner ? 1.15 : 1.0;
+      const targetScale = isWinner ? 1.14 : 1.0;
       badgeScale += (targetScale - badgeScale) * 0.2;
 
+      // Positioned at 26% from top (leaves top quarter free for titles in edit)
       ctx.save();
-      ctx.translate(cw / 2, ch * 0.16);
+      ctx.translate(cw / 2, ch * 0.26);
       ctx.scale(badgeScale, badgeScale);
 
-      const boxW = 165;
-      const boxH = 165;
+      // Compact badge size (174px on a 1080px-wide canvas = ~16% of screen width)
+      const boxW = 174;
+      const boxH = 174;
       ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = isWinner ? "#00e676" : "#ff0066";
       ctx.lineWidth = 7;
 
       ctx.shadowColor = "rgba(0,0,0,0.35)";
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = 22;
       ctx.shadowOffsetY = 8;
 
       ctx.beginPath();
       if (ctx.roundRect) {
-        ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 32);
+        ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 34);
       } else {
         ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH);
       }
@@ -266,12 +270,12 @@
 
       ctx.shadowColor = "transparent";
       ctx.fillStyle = "#666666";
-      ctx.font = "700 15px system-ui, -apple-system, sans-serif";
+      ctx.font = "700 16px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("YOUR LETTER", 0, -36);
+      ctx.fillText("YOUR LETTER", 0, -40);
 
       ctx.fillStyle = "#111111";
-      ctx.font = "900 84px system-ui, -apple-system, sans-serif";
+      ctx.font = "900 88px system-ui, -apple-system, sans-serif";
       ctx.textBaseline = "middle";
       ctx.fillText(currentLetter, 0, 16);
       ctx.restore();
@@ -297,7 +301,7 @@
       }, 2500);
     });
 
-    // 4. Record Video + Audio
+    // 4. Record Video + Audio at 8 Mbps (High Definition)
     recBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!isRecording) {
@@ -326,14 +330,16 @@
       ];
       const supportedType = mimeTypes.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
 
-      mediaRecorder = new MediaRecorder(combinedStream, supportedType ? { mimeType: supportedType } : {});
+      const recorderOptions = { videoBitsPerSecond: 8000000 }; // 8 Mbps for crisp saved video
+      if (supportedType) recorderOptions.mimeType = supportedType;
+
+      mediaRecorder = new MediaRecorder(combinedStream, recorderOptions);
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) recordedChunks.push(e.data);
       };
 
       mediaRecorder.onstop = () => {
         const rawMime = mediaRecorder.mimeType || 'video/webm';
-        // Strip codec parameters so iOS/Android Share API accepts the file
         const cleanMime = rawMime.split(';')[0] || 'video/webm';
         const ext = cleanMime.includes('mp4') ? 'mp4' : 'webm';
 
@@ -343,7 +349,6 @@
         actionRow.classList.add('visible');
       };
 
-      // Pass 200ms timeslice so mobile browsers flush video chunks reliably
       mediaRecorder.start(200);
       isRecording = true;
       recBtn.classList.add('recording');
@@ -380,7 +385,6 @@
       setTimeout(() => a.remove(), 200);
     }
 
-    // 5A. Share / Save via native phone sheet
     shareBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (!lastRecordedFile) return;
@@ -399,7 +403,6 @@
       triggerDownload();
     });
 
-    // 5B. Direct file download fallback
     downloadBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       triggerDownload();
