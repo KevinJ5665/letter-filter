@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Random Letter Face Filter</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+    .stage {
+      position: relative;
+      width: min(100vw, 450px);
+      height: min(100vh, 800px);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      cursor: pointer;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Mirror like Instagram camera */
+    }
+    .badge {
+      position: absolute;
+      top: 12%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 110px;
+      height: 110px;
+      background: white;
+      color: #111;
+      border-radius: 24px;
+      border: 4px solid #ff0066;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.35);
+      transition: transform 0.15s ease;
+    }
+    .badge.winner {
+      transform: translateX(-50%) scale(1.18);
+      border-color: #00e676;
+    }
+    .subtitle {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 2px;
+    }
+    .letter {
+      font-size: 56px;
+      font-weight: 900;
+      line-height: 1;
+    }
+    .hint {
+      position: absolute;
+      bottom: 24px;
+      width: 100%;
+      text-align: center;
+      color: white;
+      font-size: 14px;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <video id="webcam" autoplay playsinline muted></video>
+    <div class="badge" id="badge">
+      <div class="subtitle">YOUR LETTER</div>
+      <div class="letter" id="letter">?</div>
+    </div>
+    <div class="hint">Tap anywhere to spin a random letter</div>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const letterEl = document.getElementById('letter');
+    const badgeEl = document.getElementById('badge');
+    const stage = document.getElementById('stage');
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let spinning = false;
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then(stream => { video.srcObject = stream; })
+      .catch(() => { alert("Please allow camera access to use the filter."); });
+
+    stage.addEventListener('click', () => {
+      if (spinning) return;
+      spinning = true;
+      badgeEl.classList.remove('winner');
+
+      const interval = setInterval(() => {
+        const randomIndex = Math.floor(Math.random() * letters.length);
+        letterEl.textContent = letters[randomIndex];
+      }, 60);
+
+      setTimeout(() => {
+        clearInterval(interval);
+        const finalIndex = Math.floor(Math.random() * letters.length);
+        letterEl.textContent = letters[finalIndex];
+        badgeEl.classList.add('winner');
+        spinning = false;
+      }, 2500);
+    });
+  </script>
+</body>
+</html>
