@@ -12,32 +12,33 @@
       display: flex;
       justify-content: center;
       align-items: center;
+      width: 100vw;
       height: 100dvh;
       font-family: system-ui, -apple-system, sans-serif;
       overflow: hidden;
       user-select: none;
     }
+    /* Strict 9:16 container so the browser never double-crops the camera */
     .stage {
       position: relative;
-      width: min(100vw, 450px);
-      height: min(100dvh, 820px);
-      border-radius: 20px;
-      overflow: hidden;
+      aspect-ratio: 9 / 16;
+      height: min(100dvh, calc(100vw * 16 / 9));
+      max-width: 100vw;
+      max-height: 100dvh;
       background: #111;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+      overflow: hidden;
     }
     video { display: none; }
     canvas {
       width: 100%;
       height: 100%;
-      object-fit: cover;
       display: block;
       cursor: pointer;
     }
     .rec-indicator {
       position: absolute;
-      top: 18px;
-      left: 18px;
+      top: 16px;
+      left: 16px;
       background: rgba(220, 38, 38, 0.9);
       color: #fff;
       padding: 6px 12px;
@@ -48,6 +49,7 @@
       align-items: center;
       gap: 6px;
       pointer-events: none;
+      z-index: 10;
     }
     .rec-indicator.active { display: flex; }
     .dot {
@@ -61,19 +63,45 @@
 
     .controls {
       position: absolute;
-      bottom: 24px;
+      bottom: 20px;
       left: 0;
       width: 100%;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       pointer-events: none;
+      z-index: 10;
+    }
+    .action-row {
+      display: none;
+      gap: 10px;
+      pointer-events: auto; /* Fixes unclickable save buttons */
+    }
+    .action-row.visible {
+      display: flex;
+    }
+    .action-btn {
+      border: none;
+      padding: 11px 18px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+    }
+    .share-btn {
+      background: #00e676;
+      color: #000;
+    }
+    .download-btn {
+      background: #ffffff;
+      color: #111;
     }
     .hint {
       color: #fff;
-      font-size: 13px;
-      background: rgba(0,0,0,0.45);
+      font-size: 12px;
+      background: rgba(0,0,0,0.5);
       padding: 6px 14px;
       border-radius: 999px;
       backdrop-filter: blur(4px);
@@ -81,16 +109,16 @@
     .btn-row {
       display: flex;
       align-items: center;
-      gap: 16px;
+      justify-content: center;
       pointer-events: auto;
     }
     .rec-btn {
-      width: 72px;
-      height: 72px;
+      width: 68px;
+      height: 68px;
       border-radius: 50%;
       border: 4px solid #fff;
       background: transparent;
-      padding: 6px;
+      padding: 5px;
       cursor: pointer;
       display: flex;
       justify-content: center;
@@ -107,21 +135,8 @@
     }
     .rec-btn.recording .rec-inner {
       border-radius: 8px;
-      transform: scale(0.6);
+      transform: scale(0.58);
     }
-    .share-btn {
-      display: none;
-      background: #00e676;
-      color: #000;
-      border: none;
-      padding: 12px 20px;
-      border-radius: 999px;
-      font-weight: 800;
-      font-size: 14px;
-      cursor: pointer;
-      box-shadow: 0 4px 15px rgba(0,230,118,0.4);
-    }
-    .share-btn.visible { display: block; }
   </style>
 </head>
 <body>
@@ -135,7 +150,10 @@
     </div>
 
     <div class="controls">
-      <button class="share-btn" id="shareBtn">Save / Share Video</button>
+      <div class="action-row" id="actionRow">
+        <button class="action-btn share-btn" id="shareBtn">Share / Save</button>
+        <button class="action-btn download-btn" id="downloadBtn">Download File</button>
+      </div>
       <div class="hint" id="hint">Tap screen to spin • Tap red button to record</div>
       <div class="btn-row">
         <button class="rec-btn" id="recBtn" aria-label="Record video">
@@ -152,7 +170,9 @@
     const recBtn = document.getElementById('recBtn');
     const recIndicator = document.getElementById('recIndicator');
     const recTimer = document.getElementById('recTimer');
+    const actionRow = document.getElementById('actionRow');
     const shareBtn = document.getElementById('shareBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
 
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let currentLetter = "?";
@@ -166,12 +186,13 @@
     let isRecording = false;
     let timerInterval = null;
     let lastRecordedFile = null;
+    let lastRecordedUrl = null;
 
-    // 1. Start Camera (with microphone for reactions, fallback to video-only)
+    // 1. Start Camera using native wide sensor without forced portrait crop
     async function initCamera() {
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 1280 } },
+          video: { facingMode: "user" },
           audio: true
         });
       } catch (e) {
@@ -190,77 +211,75 @@
       requestAnimationFrame(drawFrame);
     }
 
-    // 2. Draw Camera + Letter Overlay onto Canvas (so both get recorded)
+    // 2. Render 9:16 Canvas Frame + Badge Overlay
     function drawFrame() {
       const cw = canvas.width;
       const ch = canvas.height;
 
-      if (video.readyState >= 2) {
+      if (video.readyState >= 2 && video.videoWidth > 0) {
         const vw = video.videoWidth;
         const vh = video.videoHeight;
         const videoAspect = vw / vh;
         const canvasAspect = cw / ch;
 
-        let sx, sy, sw, sh;
+        let sx = 0, sy = 0, sw = vw, sh = vh;
         if (videoAspect > canvasAspect) {
-          sh = vh;
           sw = vh * canvasAspect;
           sx = (vw - sw) / 2;
-          sy = 0;
         } else {
-          sw = vw;
           sh = vw / canvasAspect;
-          sx = 0;
           sy = (vh - sh) / 2;
         }
 
         ctx.save();
         ctx.translate(cw, 0);
-        ctx.scale(-1, 1); // Mirror selfie camera
+        ctx.scale(-1, 1);
         ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         ctx.restore();
       }
 
-      // Smooth scale animation on winner
-      const targetScale = isWinner ? 1.18 : 1.0;
+      const targetScale = isWinner ? 1.15 : 1.0;
       badgeScale += (targetScale - badgeScale) * 0.2;
 
-      // Draw Letter Card at top center
       ctx.save();
-      ctx.translate(cw / 2, ch * 0.19);
+      ctx.translate(cw / 2, ch * 0.16);
       ctx.scale(badgeScale, badgeScale);
 
-      const boxW = 190;
-      const boxH = 190;
+      const boxW = 165;
+      const boxH = 165;
       ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = isWinner ? "#00e676" : "#ff0066";
-      ctx.lineWidth = 8;
+      ctx.lineWidth = 7;
 
       ctx.shadowColor = "rgba(0,0,0,0.35)";
-      ctx.shadowBlur = 25;
-      ctx.shadowOffsetY = 10;
+      ctx.shadowBlur = 20;
+      ctx.shadowOffsetY = 8;
 
       ctx.beginPath();
-      ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 38);
+      if (ctx.roundRect) {
+        ctx.roundRect(-boxW / 2, -boxH / 2, boxW, boxH, 32);
+      } else {
+        ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH);
+      }
       ctx.fill();
       ctx.stroke();
 
       ctx.shadowColor = "transparent";
       ctx.fillStyle = "#666666";
-      ctx.font = "700 18px system-ui, -apple-system, sans-serif";
+      ctx.font = "700 15px system-ui, -apple-system, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("YOUR LETTER", 0, -42);
+      ctx.fillText("YOUR LETTER", 0, -36);
 
       ctx.fillStyle = "#111111";
-      ctx.font = "900 96px system-ui, -apple-system, sans-serif";
+      ctx.font = "900 84px system-ui, -apple-system, sans-serif";
       ctx.textBaseline = "middle";
-      ctx.fillText(currentLetter, 0, 18);
+      ctx.fillText(currentLetter, 0, 16);
       ctx.restore();
 
       requestAnimationFrame(drawFrame);
     }
 
-    // 3. Spin Letters when tapping the video canvas
+    // 3. Spin Letters on Canvas Tap
     canvas.addEventListener('click', () => {
       if (spinning) return;
       spinning = true;
@@ -290,7 +309,8 @@
 
     function startRecording() {
       recordedChunks = [];
-      shareBtn.classList.remove('visible');
+      actionRow.classList.remove('visible');
+      if (lastRecordedUrl) URL.revokeObjectURL(lastRecordedUrl);
 
       const canvasStream = canvas.captureStream(30);
       const combinedTracks = [...canvasStream.getVideoTracks()];
@@ -304,22 +324,27 @@
         'video/webm;codecs=vp9,opus',
         'video/webm'
       ];
-      const mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+      const supportedType = mimeTypes.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
 
-      mediaRecorder = new MediaRecorder(combinedStream, mimeType ? { mimeType } : {});
+      mediaRecorder = new MediaRecorder(combinedStream, supportedType ? { mimeType: supportedType } : {});
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) recordedChunks.push(e.data);
       };
 
       mediaRecorder.onstop = () => {
-        const type = mediaRecorder.mimeType || 'video/webm';
-        const ext = type.includes('mp4') ? 'mp4' : 'webm';
-        const blob = new Blob(recordedChunks, { type });
-        lastRecordedFile = new File([blob], `letter-filter-${Date.now()}.${ext}`, { type });
-        shareBtn.classList.add('visible');
+        const rawMime = mediaRecorder.mimeType || 'video/webm';
+        // Strip codec parameters so iOS/Android Share API accepts the file
+        const cleanMime = rawMime.split(';')[0] || 'video/webm';
+        const ext = cleanMime.includes('mp4') ? 'mp4' : 'webm';
+
+        const blob = new Blob(recordedChunks, { type: cleanMime });
+        lastRecordedFile = new File([blob], `letter-filter-${Date.now()}.${ext}`, { type: cleanMime });
+        lastRecordedUrl = URL.createObjectURL(blob);
+        actionRow.classList.add('visible');
       };
 
-      mediaRecorder.start();
+      // Pass 200ms timeslice so mobile browsers flush video chunks reliably
+      mediaRecorder.start(200);
       isRecording = true;
       recBtn.classList.add('recording');
       recIndicator.classList.add('active');
@@ -344,7 +369,18 @@
       clearInterval(timerInterval);
     }
 
-    // 5. Save or Share directly to Phone Camera Roll / Instagram
+    function triggerDownload() {
+      if (!lastRecordedUrl || !lastRecordedFile) return;
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = lastRecordedUrl;
+      a.download = lastRecordedFile.name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => a.remove(), 200);
+    }
+
+    // 5A. Share / Save via native phone sheet
     shareBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (!lastRecordedFile) return;
@@ -360,16 +396,13 @@
           if (err.name === 'AbortError') return;
         }
       }
+      triggerDownload();
+    });
 
-      // Fallback direct download for desktop/browsers without file sharing
-      const url = URL.createObjectURL(lastRecordedFile);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = lastRecordedFile.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+    // 5B. Direct file download fallback
+    downloadBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      triggerDownload();
     });
 
     initCamera();
