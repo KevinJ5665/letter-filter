@@ -133,7 +133,6 @@
 <body>
   <div class="stage">
     <video id="webcam" autoplay playsinline muted></video>
-    <!-- Full HD 1080x1920 (9:16) canvas for sharp camera & recording quality -->
     <canvas id="canvas" width="1080" height="1920"></canvas>
 
     <div class="rec-indicator" id="recIndicator">
@@ -183,28 +182,37 @@
     let lastRecordedFile = null;
     let lastRecordedUrl = null;
 
-    // 1. Request Full HD 1080p using native sensor aspect ratio (no zoom crop)
+    // 1. Request Full HD 1080p Video + Unprocessed Natural 48kHz Mic Audio
     async function initCamera() {
-      const hdConstraints = {
+      const hdVideo = {
         facingMode: "user",
         width: { ideal: 1920 },
         height: { ideal: 1080 },
         frameRate: { ideal: 30 }
       };
 
+      // Disables robotic WebRTC call filters for natural camera-app sound
+      const naturalAudio = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: { ideal: 48000 },
+        channelCount: { ideal: 2 }
+      };
+
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: hdConstraints,
-          audio: true
+          video: hdVideo,
+          audio: naturalAudio
         });
       } catch (e) {
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: hdConstraints,
-            audio: false
+            video: hdVideo,
+            audio: true
           });
         } catch (err) {
-          alert("Please allow camera access to use the filter.");
+          alert("Please allow camera and microphone access to use the filter.");
           return;
         }
       }
@@ -215,8 +223,8 @@
 
     // 2. Render 1080x1920 Frame + Lower, Smaller Badge
     function drawFrame() {
-      const cw = canvas.width;   // 1080
-      const ch = canvas.height;  // 1920
+      const cw = canvas.width;
+      const ch = canvas.height;
 
       if (video.readyState >= 2 && video.videoWidth > 0) {
         const vw = video.videoWidth;
@@ -243,12 +251,10 @@
       const targetScale = isWinner ? 1.14 : 1.0;
       badgeScale += (targetScale - badgeScale) * 0.2;
 
-      // Positioned at 26% from top (leaves top quarter free for titles in edit)
       ctx.save();
       ctx.translate(cw / 2, ch * 0.26);
       ctx.scale(badgeScale, badgeScale);
 
-      // Compact badge size (174px on a 1080px-wide canvas = ~16% of screen width)
       const boxW = 174;
       const boxH = 174;
       ctx.fillStyle = "#ffffff";
@@ -301,7 +307,7 @@
       }, 2500);
     });
 
-    // 4. Record Video + Audio at 8 Mbps (High Definition)
+    // 4. Record Video (8 Mbps) + High-Bitrate Audio (192 kbps)
     recBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!isRecording) {
@@ -330,7 +336,10 @@
       ];
       const supportedType = mimeTypes.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
 
-      const recorderOptions = { videoBitsPerSecond: 8000000 }; // 8 Mbps for crisp saved video
+      const recorderOptions = {
+        videoBitsPerSecond: 8000000, // 8 Mbps HD video
+        audioBitsPerSecond: 192000   // 192 kbps crisp audio
+      };
       if (supportedType) recorderOptions.mimeType = supportedType;
 
       mediaRecorder = new MediaRecorder(combinedStream, recorderOptions);
